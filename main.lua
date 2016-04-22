@@ -302,7 +302,7 @@ while epoch < params.max_max_epoch do
             params.lr = params.lr / params.decay
         end
         -- Save models at this stage so that we can premature exit if needed
-        torch.save(string.format('%s_%d.%s',savefile[1],epoch,savefile[2]))
+        torch.save(string.format('%s_%d.%s',savefile[1],epoch,savefile[2]),model)
     end
 end
 run_test()
