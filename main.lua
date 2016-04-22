@@ -20,6 +20,14 @@ require('nngraph')
 require('base')
 ptb = require('data')
 
+--Get command line params
+cmd = torch.CmdLine()
+cmd:text()
+cmd:option('-save','models/baseline.net','model save file')
+opt = cmd:parse(arg or {})
+
+savefile = string.split(opt.save,'%.')
+
 -- Trains 1 epoch and gives validation set ~182 perplexity (CPU).
 local params = {
                 batch_size=20, -- minibatch
@@ -293,6 +301,8 @@ while epoch < params.max_max_epoch do
         if epoch > params.max_epoch then
             params.lr = params.lr / params.decay
         end
+        -- Save models at this stage so that we can premature exit if needed
+        torch.save(string.format('%s_%d.%s',savefile[1],epoch,savefile[2]))
     end
 end
 run_test()
