@@ -71,6 +71,18 @@ local function validdataset(batch_size)
     return x
 end
 
+-- Assume that vocab is already populated. If word not in dictionary then its <unk>
+local function encode_data(data)
+    local x = torch.zeros(#data)
+    for i = 1, #data do
+        if vocab_map[data[i]] == nil then
+            data[i] = '<unk>'
+        end
+        x[i] = vocab_map[data[i]]
+    end
+    return x
+end
+
 return {traindataset=traindataset,
         testdataset=testdataset,
         validdataset=validdataset,
