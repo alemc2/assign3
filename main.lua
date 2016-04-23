@@ -99,8 +99,9 @@ function create_network()
     end
     local h2y                = nn.Linear(params.rnn_size, params.vocab_size)
     local dropped            = nn.Dropout(params.dropout)(i[params.layers])
-    local pred_prob          = nn.SoftMax()(h2y(dropped))
-    local pred               = nn.Log()(pred_prob)
+    local h2y_dropped        = h2y(dropped)
+    local pred_prob          = nn.SoftMax()(h2y_dropped)
+    local pred               = nn.LogSoftMax()(h2y_dropped)
     local err                = nn.ClassNLLCriterion()({pred, y})
     local module             = nn.gModule({x, y, prev_s},
                                       {err, nn.Identity()(next_s),pred_prob})
