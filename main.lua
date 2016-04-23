@@ -185,7 +185,7 @@ function bp(state)
         -- Why 1? - Because nngraph converts criteria to a module and hence it's second argument is gradout not target which for the case of the end criteria is 1.
         local derr = transfer_data(torch.ones(1))
         -- The predicted probability is only to extract the output, it in no way affects the loss and hence shouldn't affect the weights so gradout is 0
-        local dpred = transfer_data(torch.zeros(1))
+        local dpred = transfer_data(torch.zeros(params.batch_size, params.vocab_size))
         -- tmp stores the ds
         local tmp = model.rnns[i]:backward({x, y, s},
                                            {derr, model.ds, dpred})[3]
