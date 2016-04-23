@@ -72,20 +72,21 @@ local function validdataset(batch_size)
 end
 
 -- Assume that vocab is already populated. If word not in dictionary then its <unk>
-local function encode_data(data)
-    local x = {}
+local function encode_data(data,batch_size) --gets table returns tensor
+    local x = torch.zeros(#data)
     for i = 1, #data do
         if vocab_map[data[i]] == nil then
             data[i] = '<unk>'
         end
         x[i] = vocab_map[data[i]]
     end
+    x = x:resize(x:size(1), 1):expand(x:size(1), batch_size)
     return x
 end
 
-local function decode_data(data)
+local function decode_data(data) --gets tensor return table
     local x = {}
-    for i = 1, #data do
+    for i = 1, data:size(1) do
         x[i] = vocab_inverse_map[data[i]]
     end
     return x
@@ -94,5 +95,7 @@ end
 return {traindataset=traindataset,
         testdataset=testdataset,
         validdataset=validdataset,
+        encode_data=encode_data,
+        decode_data=decode_data,
         vocab_map=vocab_map,
         vocab_inverse_map=vocab_inverse_map}
