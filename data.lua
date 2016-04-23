@@ -73,12 +73,20 @@ end
 
 -- Assume that vocab is already populated. If word not in dictionary then its <unk>
 local function encode_data(data)
-    local x = torch.zeros(#data)
+    local x = {}
     for i = 1, #data do
         if vocab_map[data[i]] == nil then
             data[i] = '<unk>'
         end
         x[i] = vocab_map[data[i]]
+    end
+    return x
+end
+
+local function decode_data(data)
+    local x = {}
+    for i = 1, #data do
+        x[i] = vocab_inverse_map[data[i]]
     end
     return x
 end
