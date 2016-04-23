@@ -99,10 +99,11 @@ function create_network()
     end
     local h2y                = nn.Linear(params.rnn_size, params.vocab_size)
     local dropped            = nn.Dropout(params.dropout)(i[params.layers])
-    local pred               = nn.LogSoftMax()(h2y(dropped))
+    local pred_prob          = nn.SoftMax()(h2y(dropped))
+    local pred               = nn.Log()(pred_prob)
     local err                = nn.ClassNLLCriterion()({pred, y})
     local module             = nn.gModule({x, y, prev_s},
-                                      {err, nn.Identity()(next_s)})
+                                      {err, nn.Identity()(next_s),pred_prob})
     -- initialize weights
     module:getParameters():uniform(-params.init_weight, params.init_weight)
     return transfer_data(module)
@@ -160,7 +161,7 @@ function fp(state)
         local x = state.data[state.pos]
         local y = state.data[state.pos + 1]
         local s = model.s[i - 1]
-        model.err[i], model.s[i] = unpack(model.rnns[i]:forward({x, y, s}))
+        model.err[i], model.s[i], _ = unpack(model.rnns[i]:forward({x, y, s}))
         state.pos = state.pos + 1
     end
     
@@ -181,11 +182,13 @@ function bp(state)
         local x = state.data[state.pos]
         local y = state.data[state.pos + 1]
         local s = model.s[i - 1]
-        -- Why 1?
+        -- Why 1? - Because nngraph converts criteria to a module and hence it's second argument is gradout not target which for the case of the end criteria is 1.
         local derr = transfer_data(torch.ones(1))
+        -- The predicted probability is only to extract the output, it in no way affects the loss and hence shouldn't affect the weights so gradout is 0
+        local dpred = transfer_data(torch.zeros(1))
         -- tmp stores the ds
         local tmp = model.rnns[i]:backward({x, y, s},
-                                           {derr, model.ds})[3]
+                                           {derr, model.ds, dpred})[3]
         -- remember (to, from)
         g_replace_table(model.ds, tmp)
     end
