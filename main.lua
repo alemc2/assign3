@@ -24,6 +24,7 @@ ptb = require('data')
 cmd = torch.CmdLine()
 cmd:text()
 cmd:option('-save','models/baseline.net','model save file')
+cmd:option('-dropout',0,'dropout probability - 0 means no dropout')
 opt = cmd:parse(arg or {})
 
 savefile = string.split(opt.save,'%.')
@@ -35,7 +36,7 @@ local params = {
                 layers=2,
                 decay=2,
                 rnn_size=200, -- hidden unit size
-                dropout=0, 
+                dropout=opt.Dropout,
                 init_weight=0.1, -- random weight initialization limits
                 lr=1, --learning rate
                 vocab_size=10000, -- limit on the vocabulary size
