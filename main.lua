@@ -6,16 +6,6 @@
 ----  LICENSE file in the root directory of this source tree. 
 ----
 
-gpu = false
-if gpu then
-    require 'cunn'
-    print("Running on GPU") 
-    
-else
-    require 'nn'
-    print("Running on CPU")
-end
-
 require('nngraph')
 require('base')
 ptb = require('data')
@@ -25,7 +15,18 @@ cmd = torch.CmdLine()
 cmd:text()
 cmd:option('-save','models/baseline.net','model save file')
 cmd:option('-dropout',0,'dropout probability - 0 means no dropout')
+cmd:option('-cell','lstm','lstm/gru cell')
+cmd:option('-gpu',false,'use gpu')
 opt = cmd:parse(arg or {})
+
+if opt.gpu then
+    require 'cunn'
+    print("Running on GPU") 
+    
+else
+    require 'nn'
+    print("Running on CPU")
+end
 
 savefile = string.split(opt.save,'%.')
 
@@ -45,8 +46,14 @@ local params = {
                 max_grad_norm=5 -- clip when gradients exceed this norm value
                }
 
+if opt.cell == 'lstm' then
+    params.num_s = 2*params.layers
+elseif opt.cell == 'gru' then
+    params.num_s = params.layers
+end
+
 function transfer_data(x)
-    if gpu then
+    if opt.gpu then
         return x:cuda()
     else
         return x
@@ -81,6 +88,39 @@ local function lstm(x, prev_c, prev_h)
     return next_c, next_h
 end
 
+local function gru(x, prev_h)
+    -- Calculate all two gates in one go. 3rd is for the transform
+    local i2h              = nn.Linear(params.rnn_size, 3*params.rnn_size)(x)
+    local h2h              = nn.Linear(params.rnn_size, 3*params.rnn_size)(prev_h)
+    -- For gates use only the first 2 parts, don't need to sum like this for the 3rd part as it is based on reset gate
+    local gates            = nn.CAddTable()({
+                                            nn.Narrow(2,1,2*params.rnn_size)(i2h),
+                                            nn.Narrow(2,1,2*params.rnn_size)(h2h)
+                                        })
+
+    -- Reshape to (batch_size, n_gates, hid_size)
+    -- Then slice the n_gates dimension, i.e dimension 2
+    local reshaped_gates   =  nn.Reshape(2, params.rnn_size)(gates)
+    local sliced_gates     = nn.SplitTable(2)(reshaped_gates)
+
+    -- Use select gate to fetch each gate and apply nonlinearity
+    -- reset gate r
+    local reset_gate       = nn.Sigmoid()(nn.SelectTable(1)(sliced_gates))
+    -- update gate z
+    local update_gate      = nn.Sigmoid()(nn.SelectTable(2)(sliced_gates))
+    
+    local reset_h          = nn.CMulTable()({reset_gate, nn.Narrow(2, 2*params.rnn_size+1, params.rnn_size)(h2h)})
+    local transform_inp    = nn.CAddTable()({nn.Narrow(2, 2*params.rnn_size+1, params.rnn_size)(i2h), reset_h})
+    local h_out            = nn.Tanh()(transform_inp)
+    
+
+    -- Use of formula next_h = (1-z)*prev_h + z*h_out
+    local h_feedback       = nn.CMulTable()({update_gate, nn.CSubTable()({h_out, prev_h})})
+    local next_h           = nn.CAddTable()({prev_h, h_feedback})
+
+    return next_h
+end
+
 function create_network()
     local x                  = nn.Identity()()
     local y                  = nn.Identity()()
@@ -88,15 +128,22 @@ function create_network()
     local i                  = {[0] = nn.LookupTable(params.vocab_size,
                                                     params.rnn_size)(x)}
     local next_s             = {}
-    local split              = {prev_s:split(2 * params.layers)}
+    local split              = {prev_s:split(params.num_s)}
     for layer_idx = 1, params.layers do
-        local prev_c         = split[2 * layer_idx - 1]
-        local prev_h         = split[2 * layer_idx]
         local dropped        = nn.Dropout(params.dropout)(i[layer_idx - 1])
-        local next_c, next_h = lstm(dropped, prev_c, prev_h)
-        table.insert(next_s, next_c)
-        table.insert(next_s, next_h)
-        i[layer_idx] = next_h
+        if opt.cell == 'lstm' then
+            local prev_c         = split[2 * layer_idx - 1]
+            local prev_h         = split[2 * layer_idx]
+            local next_c, next_h = lstm(dropped, prev_c, prev_h)
+            table.insert(next_s, next_c)
+            table.insert(next_s, next_h)
+            i[layer_idx] = next_h
+        elseif opt.cell == 'gru' then
+            local prev_h         = split[layer_idx]
+            local next_h = gru(dropped, prev_h)
+            table.insert(next_s, next_h)
+            i[layer_idx] = next_h
+        end
     end
     local h2y                = nn.Linear(params.rnn_size, params.vocab_size)
     local dropped            = nn.Dropout(params.dropout)(i[params.layers])
@@ -112,7 +159,7 @@ function create_network()
 end
 
 function setup()
-    print("Creating a RNN LSTM network.")
+    print("Creating a RNN "..opt.cell.." network.")
     local core_network = create_network()
     paramx, paramdx = core_network:getParameters()
     model.s = {}
@@ -120,11 +167,11 @@ function setup()
     model.start_s = {}
     for j = 0, params.seq_length do
         model.s[j] = {}
-        for d = 1, 2 * params.layers do
+        for d = 1, params.num_s do
             model.s[j][d] = transfer_data(torch.zeros(params.batch_size, params.rnn_size))
         end
     end
-    for d = 1, 2 * params.layers do
+    for d = 1, params.num_s do
         model.start_s[d] = transfer_data(torch.zeros(params.batch_size, params.rnn_size))
         model.ds[d] = transfer_data(torch.zeros(params.batch_size, params.rnn_size))
     end
@@ -137,7 +184,7 @@ end
 function reset_state(state)
     state.pos = 1
     if model ~= nil and model.start_s ~= nil then
-        for d = 1, 2 * params.layers do
+        for d = 1, params.num_s do
             model.start_s[d]:zero()
         end
     end
@@ -245,8 +292,8 @@ function run_test()
     g_enable_dropout(model.rnns)
 end
 
-if gpu then
-    g_init_gpu(arg)
+if opt.gpu then
+    g_init_gpu({})
 end
 
 -- get data in batches
