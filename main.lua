@@ -222,8 +222,8 @@ function create_network()
     local dropped            = nn.Dropout(params.dropout)(i[params.layers])
     local h2y_dropped        = h2y(dropped)
     local pred_prob          = nn.SoftMax()(h2y_dropped)
-    local pred               = nn.Log()(nn.Clamp(1e-15,1)(pred_prob))
-    --local pred               = nn.LogSoftMax()(h2y_dropped)
+    --local pred               = nn.Log()(nn.Clamp(1e-15,1)(pred_prob))
+    local pred               = nn.LogSoftMax()(h2y_dropped)
     local err                = nn.ClassNLLCriterion()({pred, y})
     local module             = nn.gModule({x, y, prev_s},
                                       {err, nn.Identity()(next_s),pred_prob})
@@ -432,7 +432,7 @@ while epoch < params.max_max_epoch do
     -- run when epoch done
     if step % epoch_size == 0 then
         run_valid()
-        if epoch > params.max_epoch then
+        if epoch > params.max_epoch and opt.optimization == 'SGD'  then
             optimState.learningRate = optimState.learningRate / params.decay
             --params.lr = params.lr / params.decay
         end
