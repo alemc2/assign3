@@ -8,6 +8,7 @@
 
 require('nngraph')
 require('base')
+require('optim')
 ptb = require('data')
 
 --Get command line params
@@ -17,6 +18,18 @@ cmd:option('-save','models/baseline.net','model save file')
 cmd:option('-dropout',0,'dropout probability - 0 means no dropout')
 cmd:option('-cell','lstm','lstm/gru cell')
 cmd:option('-gpu',false,'use gpu')
+cmd:option('-optimization', 'SGD', 'optimization method: SGD | ASGD | CG | LBFGS | ADAM | ADAGRAD | ADADELTA')
+cmd:option('-learningRate', 1, 'learning rate at t=0')
+cmd:option('-learningRateDecay', 0, 'learning rate decay')
+cmd:option('-beta1', 0.9, 'beta1 (for Adam)')
+cmd:option('-beta2', 0.999, 'beta2 (for Adam)')
+cmd:option('-epsilon', 1e-8, 'epsilon (for Adam)')
+cmd:option('-weightDecay', 0, 'weight decay (SGD only)')
+cmd:option('-momentum', 0, 'momentum (SGD only)')
+cmd:option('-nesterov', false, 'nesterov acceleration momentum (SGD only)')
+cmd:option('-dampening', 0, 'momentum dampening (SGD only)')
+cmd:option('-t0', 1, 'start averaging at t0 (ASGD only), in nb of epochs')
+cmd:option('-maxIter', 2, 'maximum nb of iterations for CG and LBFGS')
 opt = cmd:parse(arg or {})
 
 if opt.gpu then
@@ -29,6 +42,66 @@ else
 end
 
 savefile = string.split(opt.save,'%.')
+
+print '==> configuring optimizer'
+
+if opt.optimization == 'CG' then
+   optimState = {
+      maxIter = opt.maxIter
+   }
+   optimMethod = optim.cg
+
+elseif opt.optimization == 'LBFGS' then
+   optimState = {
+      learningRate = opt.learningRate,
+      maxIter = opt.maxIter,
+      nCorrection = 10
+   }
+   optimMethod = optim.lbfgs
+
+elseif opt.optimization == 'SGD' then
+   optimState = {
+      learningRate = opt.learningRate,
+      weightDecay = opt.weightDecay,
+      momentum = opt.momentum,
+      learningRateDecay = opt.learningRateDecay,
+      nesterov = opt.nesterov,
+      dampening = opt.dampening
+   }
+   optimMethod = optim.sgd
+
+elseif opt.optimization == 'ASGD' then
+   optimState = {
+      eta0 = opt.learningRate,
+      t0 = trsize * opt.t0
+   }
+   optimMethod = optim.asgd
+
+elseif opt.optimization == 'ADAM' then
+   optimState = {
+      learningRate = opt.learningRate,
+      beta1 = opt.beta1,
+      beta2 = opt.beta2,
+      epsilon = opt.epsilon
+   }
+   optimMethod = optim.adam
+
+elseif opt.optimization == 'ADAGRAD' then
+   optimState = {
+      learningRate = opt.learningRate,
+   }
+   optimMethod = optim.adagrad
+
+elseif opt.optimization == 'ADADELTA' then
+   optimState = {
+      -- rho = ... interpolation parameter, add if needed
+      -- eps = ... for numerical stability, add if needed
+   }
+   optimMethod = optim.adadelta
+
+else
+   error('unknown optimization method')
+end
 
 -- Trains 1 epoch and gives validation set ~182 perplexity (CPU).
 local params = {
@@ -149,7 +222,8 @@ function create_network()
     local dropped            = nn.Dropout(params.dropout)(i[params.layers])
     local h2y_dropped        = h2y(dropped)
     local pred_prob          = nn.SoftMax()(h2y_dropped)
-    local pred               = nn.LogSoftMax()(h2y_dropped)
+    local pred               = nn.Log()(nn.Clamp(1e-15,1)(pred_prob))
+    --local pred               = nn.LogSoftMax()(h2y_dropped)
     local err                = nn.ClassNLLCriterion()({pred, y})
     local module             = nn.gModule({x, y, prev_s},
                                       {err, nn.Identity()(next_s),pred_prob})
@@ -253,7 +327,15 @@ function bp(state)
     end
     
     -- gradient descent step
-    paramx:add(paramdx:mul(-params.lr))
+    local feval = function(x)
+        return model.rnns[params.seq_length].output,paramdx
+    end
+    if optimMethod == optim.asgd then
+        _,_,average = optimMethod(feval, paramx, optimState)
+    else
+        optimMethod(feval, paramx, optimState)
+    end
+    --paramx:add(paramdx:mul(-params.lr))
 end
 
 function run_valid()
@@ -343,7 +425,7 @@ while epoch < params.max_max_epoch do
              ', train perp. = ' .. g_f3(torch.exp(perps:mean())) ..
              ', wps = ' .. wps ..
              ', dw:norm() = ' .. g_f3(model.norm_dw) ..
-             ', lr = ' ..  g_f3(params.lr) ..
+             ', lr = ' ..  g_f3(optimState.learningRate) ..
              ', since beginning = ' .. since_beginning .. ' mins.')
     end
     
@@ -351,7 +433,8 @@ while epoch < params.max_max_epoch do
     if step % epoch_size == 0 then
         run_valid()
         if epoch > params.max_epoch then
-            params.lr = params.lr / params.decay
+            optimState.learningRate = optimState.learningRate / params.decay
+            --params.lr = params.lr / params.decay
         end
         -- Save models at this stage so that we can premature exit if needed
         torch.save(string.format('%s_%d.%s',savefile[1],epoch,savefile[2]),model)
