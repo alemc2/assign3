@@ -25,6 +25,7 @@ cmd:option('-beta1', 0.9, 'beta1 (for Adam)')
 cmd:option('-beta2', 0.999, 'beta2 (for Adam)')
 cmd:option('-epsilon', 1e-8, 'epsilon (for Adam)')
 cmd:option('-weightDecay', 0, 'weight decay (SGD only)')
+cmd:option('-noDecay', false, 'no weight decay (SGD only)')
 cmd:option('-momentum', 0, 'momentum (SGD only)')
 cmd:option('-nesterov', false, 'nesterov acceleration momentum (SGD only)')
 cmd:option('-dampening', 0, 'momentum dampening (SGD only)')
@@ -432,7 +433,7 @@ while epoch < params.max_max_epoch do
     -- run when epoch done
     if step % epoch_size == 0 then
         run_valid()
-        if epoch > params.max_epoch and opt.optimization == 'SGD'  then
+        if epoch > params.max_epoch and opt.optimization == 'SGD' and opt.noDecay ~= true  then
             optimState.learningRate = optimState.learningRate / params.decay
             --params.lr = params.lr / params.decay
         end
