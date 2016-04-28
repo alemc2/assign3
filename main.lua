@@ -31,6 +31,12 @@ cmd:option('-nesterov', false, 'nesterov acceleration momentum (SGD only)')
 cmd:option('-dampening', 0, 'momentum dampening (SGD only)')
 cmd:option('-t0', 1, 'start averaging at t0 (ASGD only), in nb of epochs')
 cmd:option('-maxIter', 2, 'maximum nb of iterations for CG and LBFGS')
+cmd:option('-layers', 2, 'Number of layers of the model')
+cmd:option('-rnn_size', 200, 'hidden unit size')
+cmd:option('-max_epoch', 4, 'maximum nb of epochs after which multiplicative decay is started')
+cmd:option('-max_max_epoch', 13, 'max number of epochs to run')
+cmd:option('-seq_length', 20, 'Unroll length')
+cmd:option('-max_grad_norm', 5, 'maximum gradient to normalize to')
 opt = cmd:parse(arg or {})
 
 if opt.gpu then
@@ -107,17 +113,17 @@ end
 -- Trains 1 epoch and gives validation set ~182 perplexity (CPU).
 local params = {
                 batch_size=20, -- minibatch
-                seq_length=20, -- unroll length
-                layers=2,
+                seq_length=opt.seq_length, -- unroll length
+                layers=opt.layers,
                 decay=2,
-                rnn_size=200, -- hidden unit size
+                rnn_size=opt.rnn_size, -- hidden unit size
                 dropout=opt.Dropout,
                 init_weight=0.1, -- random weight initialization limits
                 lr=1, --learning rate
                 vocab_size=10000, -- limit on the vocabulary size
-                max_epoch=4,  -- when to start decaying learning rate
-                max_max_epoch=13, -- final epoch
-                max_grad_norm=5 -- clip when gradients exceed this norm value
+                max_epoch=opt.max_epoch,  -- when to start decaying learning rate
+                max_max_epoch=opt.max_max_epoch, -- final epoch
+                max_grad_norm=opt.max_grad_norm -- clip when gradients exceed this norm value
                }
 
 if opt.cell == 'lstm' then
@@ -438,7 +444,7 @@ while epoch < params.max_max_epoch do
             --params.lr = params.lr / params.decay
         end
         -- Save models at this stage so that we can premature exit if needed
-        torch.save(string.format('%s_%d.%s',savefile[1],epoch,savefile[2]),model)
+        torch.save(string.format('%s_%d.%s',savefile[1],epoch%2,savefile[2]),model)
     end
 end
 run_test()
