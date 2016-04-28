@@ -360,6 +360,7 @@ function run_valid()
     end
     print("Validation set perplexity : " .. g_f3(torch.exp(perp / len)))
     g_enable_dropout(model.rnns)
+    return perp/len
 end
 
 function run_test()
@@ -406,6 +407,7 @@ start_time = torch.tic()
 print("Starting training.")
 words_per_step = params.seq_length * params.batch_size
 epoch_size = torch.floor(state_train.data:size(1) / params.seq_length)
+best = 20000
 
 while epoch < params.max_max_epoch do
 
@@ -438,13 +440,18 @@ while epoch < params.max_max_epoch do
     
     -- run when epoch done
     if step % epoch_size == 0 then
-        run_valid()
+        local val_err = run_valid()
         if epoch > params.max_epoch and opt.optimization == 'SGD' and opt.noDecay ~= true  then
             optimState.learningRate = optimState.learningRate / params.decay
             --params.lr = params.lr / params.decay
         end
         -- Save models at this stage so that we can premature exit if needed
-        torch.save(string.format('%s_%d.%s',savefile[1],epoch%2,savefile[2]),model)
+        --torch.save(string.format('%s_%d.%s',savefile[1],epoch%2,savefile[2]),model)
+        torch.save(opt.save,model)
+        if val_err < best then
+            torch.save(string.format('%sbest.%s',savefile[1],savefile[2]),model)
+            best = val_err
+        end
     end
 end
 run_test()
