@@ -2,6 +2,7 @@ stringx = require('pl.stringx')
 ptb = require('data')
 require('nngraph')
 require('base')
+require 'xlua'    -- xlua provides useful tools, like progress bars
 
 --Get command line params
 cmd = torch.CmdLine()
@@ -44,12 +45,12 @@ function run_test()
     -- no batching here
     g_replace_table(model.s[0], model.start_s)
     for i = 1, (len - 1) do
+        xlua.progress(i, len-1)
         local x = state_test.data[i]
         local y = state_test.data[i + 1]
         perp_tmp, model.s[1] = unpack(model.rnns[1]:forward({x, y, model.s[0]}))
         perp = perp + perp_tmp[1]
         g_replace_table(model.s[0], model.s[1])
-        print(i)
     end
     print("Test set perplexity : " .. g_f3(torch.exp(perp / (len - 1))))
     g_enable_dropout(model.rnns)
